@@ -1,0 +1,6 @@
+node_modules/
+.env
+analytics.json
+visitors.json
+*.log
+.DS_Store
