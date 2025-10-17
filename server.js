@@ -31,8 +31,11 @@ const emailTransporter = nodemailer.createTransport({
     port: 587,
     secure: false,
     auth: {
-        user: 'sarahai@supremeone.net',
+        user: process.env.EMAIL_USER || 'sarahai@supremeone.net',
         pass: process.env.EMAIL_PASS
+    },
+    tls: {
+        ciphers: 'SSLv3'
     }
 });
 
@@ -211,10 +214,19 @@ async function getVisitorCount() {
 }
 
 async function saveVisitorCount(data) {
+    // Convert Sets to Arrays for JSON storage
+    const dailyData = {};
+    for (const [date, stats] of Object.entries(data.daily || {})) {
+        dailyData[date] = {
+            total: stats.total,
+            unique: Array.from(stats.unique || [])
+        };
+    }
+
     await fs.writeFile(VISITOR_FILE, JSON.stringify({
         total: data.total,
         unique: Array.from(data.unique),
-        daily: data.daily
+        daily: dailyData
     }, null, 2));
 }
 
@@ -794,6 +806,181 @@ app.get('/api/analytics/dashboard', async (req, res) => {
     } catch (error) {
         console.error('Get analytics error:', error);
         res.status(500).json({ error: 'Failed to get analytics' });
+    }
+});
+
+// Contact form submission
+app.post('/api/contact/submit', async (req, res) => {
+    try {
+        const { name, email, phone, company, interest, message } = req.body;
+
+        // Validate required fields
+        if (!name || !email || !message || !interest) {
+            return res.status(400).json({
+                success: false,
+                error: 'Name, email, message, and interest are required'
+            });
+        }
+
+        // Email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid email address'
+            });
+        }
+
+        // Format the notification email to you
+        const notificationHtml = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #1e40af; border-bottom: 3px solid #1e40af; padding-bottom: 10px;">
+                    New Contact Form Submission
+                </h2>
+
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <h3 style="margin-top: 0; color: #333;">Contact Information</h3>
+                    <p><strong>Name:</strong> ${name}</p>
+                    <p><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>
+                    ${phone ? `<p><strong>Phone:</strong> <a href="tel:${phone}">${phone}</a></p>` : ''}
+                    ${company ? `<p><strong>Dealership/Company:</strong> ${company}</p>` : ''}
+                    <p><strong>Interest:</strong> ${interest}</p>
+                </div>
+
+                <div style="background: #fff; padding: 20px; border-left: 4px solid #1e40af; margin: 20px 0;">
+                    <h3 style="margin-top: 0; color: #333;">Message</h3>
+                    <p style="line-height: 1.6; white-space: pre-wrap;">${message}</p>
+                </div>
+
+                <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 12px;">
+                    <p>Submitted: ${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })} EST</p>
+                    <p>This email was automatically generated from the Supreme One website contact form.</p>
+                </div>
+            </div>
+        `;
+
+        // Format the auto-reply email to the sender
+        const autoReplyHtml = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            </head>
+            <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #1e40af 0%, #dc2626 100%); padding: 40px 30px; text-align: center;">
+                        <h1 style="margin: 0; font-size: 32px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Supreme One</h1>
+                        <p style="margin: 8px 0 0 0; font-size: 16px; color: rgba(255, 255, 255, 0.95); font-weight: 600; letter-spacing: 0.5px;">Ignite Passion, Inspire Performance</p>
+                        <div style="margin-top: 5px; font-size: 11px; color: rgba(255, 255, 255, 0.8); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">Patent Pending</div>
+                    </div>
+
+                    <!-- Main Content -->
+                    <div style="padding: 40px 30px; background-color: #ffffff;">
+                        <h2 style="margin: 0 0 20px 0; font-size: 24px; font-weight: 700; color: #1f2937;">Thank You for Contacting Us!</h2>
+
+                        <p style="margin: 0 0 16px 0; line-height: 1.8; color: #1f2937; font-size: 16px;">Hi <strong>${name}</strong>,</p>
+
+                        <p style="margin: 0 0 16px 0; line-height: 1.8; color: #1f2937; font-size: 16px;">
+                            Thank you for your interest in <strong>Supreme One</strong>! We've received your message and one of our experts will reach out to you very soon.
+                        </p>
+
+                        <p style="margin: 0 0 24px 0; line-height: 1.8; color: #1f2937; font-size: 16px;">
+                            In the meantime, explore our revolutionary AI-powered F&I training platform:
+                        </p>
+
+                        <!-- Links Box -->
+                        <div style="background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%); padding: 24px; border-radius: 12px; margin: 0 0 24px 0; border-left: 4px solid #1e40af;">
+                            <div style="margin-bottom: 12px;">
+                                <a href="https://supremeone.net/platform.html" style="color: #1e40af; text-decoration: none; font-weight: 600; font-size: 15px; display: inline-block; padding: 8px 0;">
+                                    <span style="color: #10b981; margin-right: 8px;">✓</span>Training Platform Overview
+                                </a>
+                            </div>
+                            <div style="margin-bottom: 12px;">
+                                <a href="https://supremeone.net/academy.html" style="color: #1e40af; text-decoration: none; font-weight: 600; font-size: 15px; display: inline-block; padding: 8px 0;">
+                                    <span style="color: #10b981; margin-right: 8px;">✓</span>Supreme One Academy
+                                </a>
+                            </div>
+                            <div style="margin-bottom: 12px;">
+                                <a href="https://supremeone.net/book.html" style="color: #1e40af; text-decoration: none; font-weight: 600; font-size: 15px; display: inline-block; padding: 8px 0;">
+                                    <span style="color: #10b981; margin-right: 8px;">✓</span>Passionate Consulting Book
+                                </a>
+                            </div>
+                            <div>
+                                <a href="https://supremeone.net/about.html#demo" style="color: #1e40af; text-decoration: none; font-weight: 600; font-size: 15px; display: inline-block; padding: 8px 0;">
+                                    <span style="color: #10b981; margin-right: 8px;">✓</span>Schedule a Demo
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Contact Info -->
+                        <div style="background: white; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; margin-bottom: 24px;">
+                            <p style="margin: 0 0 12px 0; font-size: 15px; color: #6b7280; font-weight: 600;">Need immediate assistance?</p>
+                            <p style="margin: 0; line-height: 1.6; color: #1f2937; font-size: 15px;">
+                                📞 <a href="tel:+18644029723" style="color: #1e40af; text-decoration: none; font-weight: 600;">(864) 402-9723</a><br>
+                                📧 <a href="mailto:sarahai@supremeone.net" style="color: #1e40af; text-decoration: none; font-weight: 600;">sarahai@supremeone.net</a>
+                            </p>
+                        </div>
+
+                        <p style="margin: 0; line-height: 1.8; color: #1f2937; font-size: 16px;">
+                            Best regards,<br>
+                            <strong style="color: #1e40af;">The Supreme One Team</strong>
+                        </p>
+                        <p style="margin: 8px 0 0 0; color: #dc2626; font-size: 14px; font-weight: 600;">
+                            💬 Powered by Sarah AI
+                        </p>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="background-color: #1f2937; padding: 30px; text-align: center;">
+                        <p style="margin: 0 0 8px 0; font-size: 14px; color: rgba(255, 255, 255, 0.9); font-weight: 600;">Supreme One, LLC</p>
+                        <p style="margin: 0 0 12px 0; font-size: 13px; color: rgba(255, 255, 255, 0.7); line-height: 1.6;">
+                            10 Kelvyn St, Greer, SC 29651<br>
+                            Phone: (864) 402-9723 | Email: sarahai@supremeone.net
+                        </p>
+                        <p style="margin: 0; font-size: 12px; color: rgba(255, 255, 255, 0.6);">
+                            <a href="https://supremeone.net" style="color: #60a5fa; text-decoration: none;">www.supremeone.net</a>
+                        </p>
+                        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                            <p style="margin: 0; font-size: 11px; color: rgba(255, 255, 255, 0.5);">
+                                © 2025 Supreme One. All rights reserved. Patent Pending.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+        `;
+
+        // Send notification email to you
+        await emailTransporter.sendMail({
+            from: 'sarahai@supremeone.net',
+            to: 'sarahai@supremeone.net',
+            replyTo: email,
+            subject: `📧 New Contact Form: ${name} - ${interest}`,
+            html: notificationHtml
+        });
+
+        // Send auto-reply to the person who filled out the form
+        await emailTransporter.sendMail({
+            from: 'sarahai@supremeone.net',
+            to: email,
+            subject: 'Thank You for Contacting Supreme One!',
+            html: autoReplyHtml
+        });
+
+        res.json({
+            success: true,
+            message: 'Your message has been sent successfully! Check your email for confirmation.'
+        });
+
+    } catch (error) {
+        console.error('Contact form error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to send message. Please try again or call us at (864) 402-9723.'
+        });
     }
 });
 
