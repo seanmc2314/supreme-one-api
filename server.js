@@ -344,7 +344,7 @@ app.post('/api/chat', async (req, res) => {
                         console.error('Timeout answer error:', error);
                     }
                 }
-            }, 23000); // 23 seconds
+            }, 15000); // 15 seconds
 
             return res.json({
                 response: greetingResponse,
