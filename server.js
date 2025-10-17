@@ -28,14 +28,11 @@ const openai = new OpenAI({
 // Email transporter
 const emailTransporter = nodemailer.createTransport({
     host: 'smtp.office365.com',
-    port: 587,
-    secure: false,
+    port: 465,
+    secure: true,
     auth: {
         user: process.env.EMAIL_USER || 'sarahai@supremeone.net',
         pass: process.env.EMAIL_PASS
-    },
-    tls: {
-        ciphers: 'SSLv3'
     }
 });
 
