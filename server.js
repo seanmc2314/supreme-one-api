@@ -264,9 +264,12 @@ const ANALYTICS_FILE = path.join(__dirname, 'analytics.json');
 async function getVisitorCount() {
     try {
         const data = await fs.readFile(VISITOR_FILE, 'utf8');
-        return JSON.parse(data);
+        const parsed = JSON.parse(data);
+        // Ensure visitors array exists
+        if (!parsed.visitors) parsed.visitors = [];
+        return parsed;
     } catch (error) {
-        return { total: 0, unique: new Set(), daily: {} };
+        return { total: 0, unique: new Set(), daily: {}, visitors: [] };
     }
 }
 
