@@ -671,6 +671,44 @@ app.get('/api/calendly/availability', async (req, res) => {
     }
 });
 
+// Bot detection - known bot ISPs and patterns
+function isBot(isp, ip, userAgent = '') {
+    const botISPs = [
+        'amazon.com', 'amazon technologies', 'amazonaws',
+        'google llc', 'googlebot',
+        'microsoft corporation', 'microsoft azure',
+        'digitalocean', 'linode', 'vultr', 'ovh',
+        'hetzner', 'contabo', 'hostinger',
+        'cloudflare', 'fastly', 'akamai',
+        'semrush', 'ahrefs', 'moz.com', 'majestic',
+        'bytedance', 'facebook', 'meta platforms'
+    ];
+
+    const botUserAgents = [
+        'bot', 'crawler', 'spider', 'scraper', 'curl', 'wget',
+        'python', 'java/', 'go-http', 'node-fetch', 'axios',
+        'headless', 'phantom', 'selenium', 'puppeteer'
+    ];
+
+    // Check ISP
+    if (isp) {
+        const ispLower = isp.toLowerCase();
+        if (botISPs.some(bot => ispLower.includes(bot))) {
+            return true;
+        }
+    }
+
+    // Check user agent
+    if (userAgent) {
+        const uaLower = userAgent.toLowerCase();
+        if (botUserAgents.some(bot => uaLower.includes(bot))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // Visitor tracking
 app.post('/api/visitor/track', async (req, res) => {
     try {
@@ -680,31 +718,37 @@ app.post('/api/visitor/track', async (req, res) => {
         // Get visitor IP and location
         const ip = getClientIP(req);
         const location = await getGeolocation(ip);
+        const userAgent = req.headers['user-agent'] || '';
 
         const today = new Date().toISOString().split('T')[0];
         const timestamp = new Date().toISOString();
 
-        // Update counts
-        visitorData.total = (visitorData.total || 0) + 1;
+        // Detect if this is a bot
+        const isBotVisitor = isBot(location.isp, ip, userAgent);
 
-        if (!visitorData.unique) visitorData.unique = new Set();
-        if (Array.isArray(visitorData.unique)) {
-            visitorData.unique = new Set(visitorData.unique);
+        // Only count real visitors in main stats
+        if (!isBotVisitor) {
+            visitorData.total = (visitorData.total || 0) + 1;
+
+            if (!visitorData.unique) visitorData.unique = new Set();
+            if (Array.isArray(visitorData.unique)) {
+                visitorData.unique = new Set(visitorData.unique);
+            }
+            visitorData.unique.add(visitorId);
+
+            if (!visitorData.daily) visitorData.daily = {};
+            if (!visitorData.daily[today]) {
+                visitorData.daily[today] = { total: 0, unique: new Set() };
+            }
+            if (Array.isArray(visitorData.daily[today].unique)) {
+                visitorData.daily[today].unique = new Set(visitorData.daily[today].unique);
+            }
+
+            visitorData.daily[today].total++;
+            visitorData.daily[today].unique.add(visitorId);
         }
-        visitorData.unique.add(visitorId);
 
-        if (!visitorData.daily) visitorData.daily = {};
-        if (!visitorData.daily[today]) {
-            visitorData.daily[today] = { total: 0, unique: new Set() };
-        }
-        if (Array.isArray(visitorData.daily[today].unique)) {
-            visitorData.daily[today].unique = new Set(visitorData.daily[today].unique);
-        }
-
-        visitorData.daily[today].total++;
-        visitorData.daily[today].unique.add(visitorId);
-
-        // Store detailed visitor info with location
+        // Store detailed visitor info with location (mark bots)
         if (!visitorData.visitors) visitorData.visitors = [];
         visitorData.visitors.push({
             visitorId,
@@ -718,7 +762,8 @@ app.post('/api/visitor/track', async (req, res) => {
             lon: location.lon,
             isp: location.isp,
             timestamp,
-            date: today
+            date: today,
+            isBot: isBotVisitor
         });
 
         // Keep only last 500 visitor records to avoid file bloat
@@ -730,14 +775,15 @@ app.post('/api/visitor/track', async (req, res) => {
 
         res.json({
             totalVisitors: visitorData.total,
-            uniqueVisitors: visitorData.unique.size,
-            todayTotal: visitorData.daily[today].total,
-            todayUnique: visitorData.daily[today].unique.size,
+            uniqueVisitors: visitorData.unique ? visitorData.unique.size : 0,
+            todayTotal: visitorData.daily?.[today]?.total || 0,
+            todayUnique: visitorData.daily?.[today]?.unique?.size || 0,
             location: {
                 city: location.city,
                 region: location.region,
                 country: location.country
-            }
+            },
+            isBot: isBotVisitor
         });
 
     } catch (error) {
